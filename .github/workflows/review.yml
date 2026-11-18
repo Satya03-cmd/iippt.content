@@ -1,0 +1,75 @@
+name: Review poster
+# Label an approval issue "approved" -> poster is queued for its date.
+# Comment "/new-bg" -> poster is re-made with a different background.
+on:
+  issues:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: poster-repo
+  cancel-in-progress: false
+
+env:
+  TZ: Asia/Kolkata
+  BROWSER_PATH: /usr/bin/google-chrome
+  GH_TOKEN: ${{ github.token }}
+  TITLE: ${{ github.event.issue.title }}
+  NUMBER: ${{ github.event.issue.number }}
+
+jobs:
+  review:
+    if: >-
+      startsWith(github.event.issue.title, 'Approve: ') && (
+        (github.event_name == 'issues' && github.event.label.name == 'approved') ||
+        (github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '/new-bg') &&
+         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Find poster id
+        run: |
+          id=$(printf '%s' "$TITLE" | sed -n 's/.*\[\([a-z0-9-]*\)\]$/\1/p')
+          [ -n "$id" ] || { echo "no id in title"; exit 1; }
+          echo "ID=$id" >> "$GITHUB_ENV"
+
+      - name: Approve
+        if: github.event_name == 'issues'
+        run: |
+          node poster.js approve "$ID"
+          echo "MSG=✅ Approved. It will post automatically on its date and time." >> "$GITHUB_ENV"
+
+      - name: New background
+        if: github.event_name == 'issue_comment'
+        run: |
+          node poster.js make "$ID" --new-bg next
+          echo "MSG=🔄 New background:" >> "$GITHUB_ENV"
+
+      - name: Commit and reply
+        run: |
+          git config user.name "poster-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- outbox approved backgrounds
+          git diff --cached --quiet || git commit -m "Review: $ID"
+          git pull --rebase
+          git push
+          if [ "${{ github.event_name }}" = "issue_comment" ]; then
+            folder=$(ls -d outbox/*_"$ID" | head -n 1)
+            gh issue comment "$NUMBER" --body "$MSG
+
+          ![poster](https://github.com/$GITHUB_REPOSITORY/blob/$(git rev-parse HEAD)/$folder/poster.png?raw=true)
+
+          Add the \`approved\` label to use it, or comment \`/new-bg\` again."
+          else
+            gh issue comment "$NUMBER" --body "$MSG"
+          fi

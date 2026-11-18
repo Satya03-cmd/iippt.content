@@ -1,0 +1,58 @@
+name: Prepare posters
+# Every day at 09:00 IST: make posters for occasions in the next 2 days and open an approval issue for each.
+on:
+  schedule:
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Make posters for the next N days'
+        default: '2'
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: poster-repo
+  cancel-in-progress: false
+
+env:
+  TZ: Asia/Kolkata
+  BROWSER_PATH: /usr/bin/google-chrome
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Make posters
+        env:
+          DAYS: ${{ github.event.inputs.days || '2' }}
+        run: node poster.js upcoming --days "$DAYS" --emit new.txt
+
+      - name: Commit
+        run: |
+          git config user.name "poster-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- outbox backgrounds
+          git diff --cached --quiet || git commit -m "New posters for review"
+          git pull --rebase
+          git push
+
+      - name: Open approval issues
+        run: |
+          gh label create approved --color 2ea44f --description "Post this poster" 2>/dev/null || true
+          sha=$(git rev-parse HEAD)
+          while read -r id; do
+            [ -z "$id" ] && continue
+            node tools/issue.js "$id" "$GITHUB_REPOSITORY" "$sha" > issue.md
+            title=$(head -n 1 issue.md)
+            tail -n +2 issue.md > body.md
+            gh issue create --title "$title" --body-file body.md
+          done < new.txt

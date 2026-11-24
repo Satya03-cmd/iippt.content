@@ -1,0 +1,7 @@
+Occasion : Constitution Day
+Date     : 2026-11-26
+Posts at : 08:00 on that day (Facebook + Instagram)
+Song     : Maa Tujhe Salaam – A.R. Rahman
+           (Meta's API can't attach music. Add it in the Instagram app if you want it.)
+Approve  : node poster.js approve constitution-day-2026
+New bg   : node poster.js make constitution-day-2026 --new-bg 1   (2, 3... for more options)
